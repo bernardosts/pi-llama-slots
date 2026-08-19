@@ -290,11 +290,13 @@ export async function waitForModelLoadedExplicit(
  *
  * @param baseUrl - The llama-server base URL (e.g. http://192.168.3.7:8080)
  * @param apiKey - Optional API key
+ * @param modelId - Optional model name to use in probe save request (avoids "model not found" errors)
  * @returns ProbeResult with slotsSupported flag and reason
  */
 export async function probeSlotsApi(
   baseUrl: string,
   apiKey?: string,
+  modelId?: string,
 ): Promise<ProbeResult> {
   logOp("probeSlotsApi", { baseUrl, hasApiKey: !!apiKey });
 
@@ -334,7 +336,7 @@ export async function probeSlotsApi(
       method: "POST",
       headers: buildHeaders(apiKey),
       body: JSON.stringify({
-        model: "__probe__", // dummy model name, won't match anything
+        model: modelId || undefined,
         filename: "__probe__",
       }),
       signal: probeController.signal,

@@ -140,7 +140,7 @@ export default function (pi: ExtensionAPI) {
     }
 
     idxInfo("Backend probe START, probing slots API at:", state.baseUrl);
-    const probeResult = await probeSlotsApi(state.baseUrl, apiKey);
+    const probeResult = await probeSlotsApi(state.baseUrl, apiKey, state.modelId || undefined);
     state.slotsProbeResult = probeResult;
     idxInfo("Backend probe result", probeResult);
 
