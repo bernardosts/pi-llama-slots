@@ -1,6 +1,29 @@
 # NEXT_ITEMS.md — Pending Work
 
-## 1. Non-llama Endpoint Detection
+## 1. API Key Support
+
+**Priority:** High  
+**Status:** Not implemented
+
+**Problem:** If llama-server is started with `--api-key`, all slot save/restore HTTP calls fail with 401/403. The extension does not read or forward API keys from any source — pi's model config (`models.json`), environment variables, or any other mechanism.
+
+The extension currently makes raw `fetch()` calls with only `Content-Type: application/json` headers. No `Authorization` header is ever sent.
+
+**What needs to happen:**
+- Detect whether llama-server requires authentication (probe with a request and check for 401/403)
+- Read the API key from a configurable source (environment variable, pi config, or llama-server config)
+- Forward the API key as `Authorization: Bearer <key>` on all requests to llama-server
+- Gracefully degrade if the key is unavailable (same as non-llama detection)
+
+**Acceptance criteria:**
+- Extension sends `Authorization: Bearer <key>` on all llama-server requests when a key is configured
+- Extension detects when llama-server requires auth and fails gracefully if no key is available
+- API key source is configurable (env var `PI_LLAMA_SLOT_PAGING_API_KEY` or similar)
+- No API key is logged or leaked in log files
+
+---
+
+## 2. Non-llama Endpoint Detection
 
 **Priority:** High  
 **Status:** Not implemented
@@ -21,7 +44,7 @@
 
 ---
 
-## 2. Model Change Tracking
+## 3. Model Change Tracking
 
 **Priority:** High  
 **Status:** Not implemented
@@ -46,7 +69,7 @@
 
 ---
 
-## 3. One Slot Per Subagent
+## 4. One Slot Per Subagent
 
 **Priority:** Medium  
 **Status:** Not implemented
@@ -67,7 +90,7 @@
 
 ---
 
-## 4. Slot Status Monitoring
+## 5. Slot Status Monitoring
 
 **Priority:** Low  
 **Status:** Not implemented
@@ -87,7 +110,7 @@
 
 ---
 
-## 5. Pruning / LRU Eviction
+## 6. Pruning / LRU Eviction
 
 **Priority:** Low  
 **Status:** Not implemented
