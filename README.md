@@ -216,8 +216,47 @@ Checks backend connectivity, resolved model configuration, and reports available
 | `active_subagent_count` | Currently a placeholder — always `0`. Planned: track live subagent count. |
 | `session_disabled` | `true` if slot save/restore is disabled for the session |
 | `disable_reason` | Explanation of why slots are disabled |
-| `slots_probe` | `{ supported: boolean, reason: string }` — backend probe result |
+
 | `last_saved_model` | Model ID used when the slot was last saved, or `null` if no save has occurred yet. Used for model mismatch detection on restore. |
+
+## Performance
+
+Benchmarked on a laptop with an Intel Core i7 (13th Gen) + NVIDIA RTX 4050 (6 GB VRAM), running Qwen3.6-35B-A3B @ IQ4_XS quantization.
+
+### Save Performance
+
+| Context Size | Saved Tokens | Slot File Size | Wall Time | Server Time |
+|-------------|-------------|----------------|-----------|-------------|
+| ~475 MB | 21,074 | 498 MB | 610 ms | 583 ms |
+| ~606 MB | 27,779 | 635 MB | 823 ms | 807 ms |
+| ~672 MB | 31,130 | 704 MB | 864 ms | 846 ms |
+| ~856 MB | 40,573 | 898 MB | 1,074 ms | 1,052 ms |
+| ~1,030 MB | 49,469 | 1,080 MB | 1,444 ms | 1,433 ms |
+
+**Average: 787 ms wall / 764 ms server**
+
+### Restore Performance
+
+| Context Size | Restored Tokens | Slot File Size | Wall Time | Server Time |
+|-------------|----------------|----------------|-----------|-------------|
+| ~475 MB | 21,074 | 498 MB | 415 ms | 403 ms |
+| ~606 MB | 27,779 | 635 MB | 553 ms | 536 ms |
+| ~672 MB | 31,130 | 704 MB | 502 ms | 494 ms |
+| ~856 MB | 40,573 | 898 MB | 664 ms | 654 ms |
+| ~1,030 MB | 49,469 | 1,080 MB | 760 ms | 729 ms |
+
+**Average: 579 ms wall / 563 ms server**
+
+### Observations
+
+- **Restore is consistently 1.3–1.7× faster than save** — expected, since save writes the full KV cache while restore loads and validates it
+- **Server vs wall time variance is <2%** — the extension's timing overhead is negligible
+- **Save time scales roughly linearly with context size** (~0.7–0.8 ms per MB of slot file)
+- **Restore time is less sensitive to context size** (~400–760 ms across 475 MB → 1,030 MB), suggesting a fixed overhead component in the save path
+
+### Full Metrics Log
+
+Raw metrics data from testing sessions is available in [`docs/artifacts/pi-llama-slots.log`](docs/artifacts/pi-llama-slots.log).
 
 ## Features
 
@@ -229,34 +268,24 @@ Checks backend connectivity, resolved model configuration, and reports available
 | Slots | 1 (main, sequential save/restore per subagent dispatch) |
 | Configuration | Runtime autodiscovery (ctx.model only) |
 | Hardcoded Defaults | Runtime autodiscovery for model/routing; hardcoded for timeouts/retries (configurable in code) |
-| Backend Detection | Auto-probe on session start; graceful disable if slots API unavailable |
+| Backend Detection | Fail-first on first save attempt; graceful disable if slots API unavailable |
 | Subagent Models | Supports dispatching subagents with models different from the main session model |
 | Model Change Tracking | Tracks model ID on save; refuses restore with TUI warning if model changed since last save |
 
-## Backend Detection
+## Fail-First-Disable
 
-On session start, the extension automatically probes the backend to verify llama-server slots API support:
+The extension uses a fail-first strategy: no pre-checks, no probes at session start. On the first save attempt, if a non-200 response is received, the extension shows a TUI warning and disables slot save/restore for the current session. The next session starts fresh.
 
-1. **GET /v1/models** — verifies the server responds to OpenAI-compatible API calls
-2. **POST /slots/0?action=save** — sends a minimal dry-save request and checks for slot-related fields (`id_slot`, `n_saved`, `timings`)
-
-If the probe detects that slots are **not supported**, the extension:
-- Sets `sessionDisabled = true` for the remainder of the session
-- Logs `"llama slots API not available, disabling"` with the reason
-- Shows a TUI warning explaining why
-- Reports the probe result in the `llama_slot_status` tool output
-
-If the probe itself fails (network error, timeout), the extension **does NOT disable** — it continues in a best-effort mode.
+This eliminates unnecessary network calls at startup and avoids creating stale artifact files on the server.
 
 ### Status Tool Fields
 
-The `llama_slot_status` tool now includes these additional fields when a probe has been performed:
+When the extension is disabled, the `llama_slot_status` tool reports:
 
 | Field | Description |
 |-------|-------------|
-| `session_disabled` | `true` if slot save/restore is disabled |
+| `session_disabled` | `true` if slot save/restore is disabled for the session |
 | `disable_reason` | Explanation of why slots are disabled |
-| `slots_probe` | Probe result object: `{ supported: boolean, reason: string }` |
 
 ## Future Work
 
