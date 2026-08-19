@@ -18,48 +18,45 @@
 ## 2. API Key Support
 
 **Priority:** High  
-**Status:** Not implemented
+**Status:** ✅ Implemented in `839cde7`
 
-**Problem:** If llama-server is started with `--api-key`, all slot save/restore HTTP calls fail with 401/403. The extension does not read or forward API keys from any source — pi's model config (`models.json`), environment variables, or any other mechanism.
-
-The extension currently makes raw `fetch()` calls with only `Content-Type: application/json` headers. No `Authorization` header is ever sent.
-
-**What needs to happen:**
-- Detect whether llama-server requires authentication (probe with a request and check for 401/403)
-- Read the API key from a configurable source (environment variable, pi config, or llama-server config)
-- Forward the API key as `Authorization: Bearer <key>` on all requests to llama-server
-- Gracefully degrade if the key is unavailable (same as non-llama detection)
-
-**Acceptance criteria:**
-- Extension sends `Authorization: Bearer <key>` on all llama-server requests when a key is configured
-- Extension detects when llama-server requires auth and fails gracefully if no key is available
-- API key source is configurable (env var `PI_LLAMA_SLOT_PAGING_API_KEY` or similar)
-- No API key is logged or leaked in log files
+**Implemented:**
+- `PI_LLAMA_SLOT_PAGING_API_KEY` env var → `Authorization: Bearer <key>` on all fetch calls
+- Auth probe on first save/restore: detects 401/403 → graceful session disable
+- API key never logged (only presence/length in debug logs)
+- Status tool forwards key for health check
 
 ---
 
-## 2. Non-llama Endpoint Detection
+## 3. Non-llama Endpoint Detection
 
 **Priority:** High  
-**Status:** Not implemented
+**Status:** ✅ Implemented in `923f28e`
 
-**Problem:** When the extension connects to a backend that does not support the llama slots API, it fails on every save/restore attempt. There is no graceful degradation — the extension keeps trying and showing errors.
-
-**What needs to happen:**
-- On extension init, probe the backend to check if it supports the llama slots API (e.g., call a slots endpoint and check the response)
-- If the backend is not llama-compatible, disable the extension for the remainder of the session
-- Show a clear TUI message explaining why the extension was disabled
-- Do not attempt any save/restore calls for the rest of the session
-
-**Acceptance criteria:**
-- Extension detects non-llama backend on startup
-- Extension logs a clear message: "llama slots API not available, disabling"
-- No save/restore attempts are made for the rest of the session
-- No TUI warnings are shown for save/restore failures
+**Implemented:**
+- Backend probe on `session_start`: `GET /v1/models` + `POST /slots/0?action=save` (2s timeout)
+- Graceful session disable if slots API not available
+- TUI warning + clear log message on disable
+- Status tool reports `slotsProbeResult` field
+- Network errors skip probe (no false disable)
 
 ---
 
-## 3. One Slot Per Subagent
+## 4. Model Change Tracking
+
+**Priority:** High  
+**Status:** ✅ Implemented in `3fb0b34`
+
+**Implemented:**
+- Tracks `lastSavedModelId` alongside slot state
+- Refuses restore on model mismatch → TUI warning, fresh slot used
+- Skips restore if `lastSavedModelId` is null (no prior save)
+- Resets on `session_start` (new session, stale slot file)
+- Status tool reports `last_saved_model` field
+
+---
+
+## 5. One Slot Per Subagent
 
 **Priority:** Medium  
 **Status:** Not implemented
