@@ -68,6 +68,7 @@ This extension is designed and tested on local laptop setups with limited memory
 
 - **No API key support**: If llama-server is started with `--api-key`, the extension's slot save/restore calls will fail with 401/403. The extension does not currently read or forward API keys from pi's model config or environment variables. Workaround: start llama-server without `--api-key`, or set the key via llama-server's `--api-key` to an empty string. See [NEXT_ITEMS.md](docs/NEXT_ITEMS.md).
 - **Model change in main session**: if the model used by the main session changes during a session, this can cause crashes or side effects. Slot state is model-specific, and a model switch invalidates the cached KV state. This needs to be tracked and handled properly (see [NEXT_ITEMS.md](docs/NEXT_ITEMS.md)).
+- **`-np 1` is a hardware ceiling, not a config default**: Tested setups (32 GB unified iGPU, 6 GB VRAM discrete) don't have memory headroom for concurrent slots at the context sizes this extension targets (up to 78k tokens). Per-subagent slots (multi-slot pool) would require `-np > 1` and meaningfully more VRAM/RAM than either tested machine has — not planned for this hardware class, untested on higher-memory setups.
 
 ## Built With Itself
 
