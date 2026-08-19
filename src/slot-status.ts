@@ -18,6 +18,7 @@ export function createStatusTool(
   activeSubagentCount: () => number,
   getModelId: () => string | null,
   getResolvedBaseUrl: () => string | null,
+  getApiKey: () => string | undefined = () => undefined,
 ) {
   return {
     name: "llama_slot_status",
@@ -38,8 +39,10 @@ export function createStatusTool(
         let healthStatus = "unknown";
 
         try {
+          const apiKey = getApiKey();
           const healthResp = await fetch(healthUrl, {
             method: "GET",
+            headers: apiKey && apiKey.length > 0 ? { "Authorization": `Bearer ${apiKey}` } : {},
             signal: controller.signal,
           });
           clearTimeout(timer);

@@ -57,9 +57,16 @@ grep -n "slot_save\|slot_restore\|state_read\|llama_state\|cache.*hit\|LCP simil
 ## Commit message rules
 
 English. Focus on the WHAT and WHY and not on the HOW. Prefer concise (but precise) over verbose.
-Add at the end of each commit message:
+Add at the end of each commit message, using the current session's provider and model from the environment:
+
+```bash
+# Read the co-author line dynamically — no hardcoding
+COAUTHOR="Co-authored-by: pi ($PI_PROVIDER/$PI_MODEL)"
+```
+
+If `PI_PROVIDER` or `PI_MODEL` are unset, fall back to:
 
 ```
-Co-authored-by: pi (provider/model-id)
+Co-authored-by: pi (unknown)
 ```
 

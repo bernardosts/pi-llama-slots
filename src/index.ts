@@ -21,8 +21,9 @@
 
 import * as fs from "fs";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { saveSlot, restoreSlot, loadModel, waitForModelLoadedExplicit } from "./slot-client.js";
+import { saveSlot, restoreSlot, loadModel, waitForModelLoadedExplicit, isModelLoaded } from "./slot-client.js";
 import { createStatusTool } from "./slot-status.js";
+import { createMetrics } from "./metrics.js";
 
 // ---- Debug Logging ----
 
@@ -72,6 +73,8 @@ interface SlotPagingState {
   baseUrl: string | null;
   modelId: string | null;
   sessionDisabled: boolean;
+  /** True once we have confirmed auth is not required (or not configured). */
+  authProbeDone: boolean;
 }
 
 export default function (pi: ExtensionAPI) {
@@ -92,7 +95,18 @@ export default function (pi: ExtensionAPI) {
     baseUrl: null,
     modelId: null,
     sessionDisabled: false,
+    authProbeDone: false,
   };
+
+  // ---- API Key Configuration ----
+
+  /** API key read from environment. Empty string or undefined means no key. */
+  const apiKey: string | undefined = process.env.PI_LLAMA_SLOT_PAGING_API_KEY;
+  if (apiKey !== undefined && apiKey.length > 0) {
+    idxInfo("API key configured (length=" + apiKey.length + "), will send Authorization header");
+  } else {
+    idxInfo("No API key configured (PI_LLAMA_SLOT_PAGING_API_KEY not set or empty)");
+  }
 
   /** The main session model ID, set once on first session_start. */
   let mainSessionModelId: string | null = null;
@@ -103,24 +117,54 @@ export default function (pi: ExtensionAPI) {
   /** Number of currently active subagents. */
   let activeSubagentCount = 0;
 
+  /** Metrics collector — null when logging is disabled. */
+  const metrics = createMetrics();
+
   // ---- Slot management helpers ----
 
-  /** Save the main slot. Logs result or error. */
+  /**
+   * Handle save with auth failure detection.
+   * On first call (auth_probe), detect 401/403 and set authProbeDone.
+   * If auth required but no key → disable for session.
+   */
   async function handleSaveMainSlot(): Promise<void> {
     idxInfo("handleSaveMainSlot START", { baseUrl: state.baseUrl, modelId: state.modelId });
     if (!state.baseUrl || !state.modelId) {
       idxErr("Cannot save: baseUrl or modelId not resolved.", { baseUrl: state.baseUrl, modelId: state.modelId });
       return;
     }
+    metrics?.startSave(state.modelId);
     try {
-      idxInfo("Calling saveSlot", { baseUrl: state.baseUrl, modelId: state.modelId, slotName: "main" });
-      const result = await saveSlot(state.baseUrl, state.modelId, "main");
+      idxInfo("Calling saveSlot", { baseUrl: state.baseUrl, modelId: state.modelId, slotName: "main", hasApiKey: !!apiKey });
+      const result = await saveSlot(state.baseUrl, state.modelId, "main", apiKey);
       idxInfo("saveSlot SUCCESS", result);
+      metrics?.endSave(result);
+
+      // Auth probe: if this is the first call and we got 401/403, detect it
+      if (!state.authProbeDone) {
+        state.authProbeDone = true;
+        // 401/403 would have thrown above — no further action needed on success
+      }
     } catch (error) {
       const msg = error instanceof Error ? error.message : String(error);
-      idxErr("Error saving main slot:", msg);
-      showWarning(`Failed to save main slot: ${msg}`);
-      state.sessionDisabled = true;
+
+      // Auth failure detection: 401 or 403 with no key configured
+      const authMismatch = (msg.includes("HTTP 401") || msg.includes("HTTP 403")) && apiKey === undefined;
+
+      if (authMismatch) {
+        idxWarn("Auth failure detected: llama-server appears to require API key but none configured. Disabling for session.");
+        showWarning(
+          "llama-server appears to require an API key (401/403), but PI_LLAMA_SLOT_PAGING_API_KEY is not configured. " +
+          "Slot save/restore has been disabled for this session. Configure the key or start llama-server without --api-key.",
+        );
+        state.sessionDisabled = true;
+        state.authProbeDone = true;
+      } else {
+        idxErr("Error saving main slot:", msg);
+        showWarning(`Failed to save main slot: ${msg}`);
+        state.sessionDisabled = true;
+      }
+      metrics?.endSave(null, msg);
     }
   }
 
@@ -147,15 +191,23 @@ export default function (pi: ExtensionAPI) {
       idxErr("Cannot restore: baseUrl or modelId not resolved.", { baseUrl: state.baseUrl, modelId: state.modelId });
       return;
     }
+    metrics?.startRestore(state.modelId);
+    let slotRestoreStart = 0; // wall-clock start of slot restore phase
     try {
       // Step 1: Explicitly load the main model via /models/load
       idxInfo("Step 1: Loading main model via /models/load...", state.modelId);
+      const t0 = Date.now();
+      let loadSucceeded = false;
       try {
-        await loadModel(state.baseUrl, state.modelId);
+        await loadModel(state.baseUrl, state.modelId, apiKey);
+        metrics?.endRestoreModelLoad(Date.now() - t0);
+        loadSucceeded = true;
         idxInfo("Step 1: /models/load request sent, waiting for model to finish loading...", state.modelId);
 
         // Step 2: Wait for the model to reach "loaded" status
-        await waitForModelLoadedExplicit(state.baseUrl, state.modelId);
+        const t1 = Date.now();
+        await waitForModelLoadedExplicit(state.baseUrl, state.modelId, undefined, undefined, apiKey);
+        metrics?.endRestoreWait(Date.now() - t1);
         idxInfo("Step 2: Model is loaded — proceeding with restore.", state.modelId);
       } catch (loadError) {
         const loadMsg = loadError instanceof Error ? loadError.message : String(loadError);
@@ -165,19 +217,37 @@ export default function (pi: ExtensionAPI) {
           idxErr("Step 1: loadModel failed (non-recoverable):", loadMsg);
           showWarning(`Failed to load main slot: ${loadMsg}`);
           state.sessionDisabled = true;
+          metrics?.endRestoreSlot(0);
           return;
         }
       }
 
       // Step 3: Restore the slot while the model is idle (no main session processing yet)
+      slotRestoreStart = Date.now();
       idxInfo("Step 3: Restoring slot...", state.modelId);
-      const result = await restoreSlot(state.baseUrl, state.modelId, "main");
+      const result = await restoreSlot(state.baseUrl, state.modelId, "main", apiKey);
       idxInfo("restoreSlot SUCCESS", result);
+      metrics?.endRestoreSlot(Date.now() - slotRestoreStart, result as unknown as Record<string, unknown>);
     } catch (error) {
       const msg = error instanceof Error ? error.message : String(error);
-      idxErr("Error restoring main slot:", msg);
-      showWarning(`Failed to restore main slot: ${msg}`);
-      state.sessionDisabled = true;
+
+      // Auth failure detection on restore
+      const authMismatch = (msg.includes("HTTP 401") || msg.includes("HTTP 403")) && apiKey === undefined;
+
+      if (authMismatch) {
+        idxWarn("Auth failure on restore: llama-server appears to require API key but none configured. Disabling for session.");
+        showWarning(
+          "llama-server appears to require an API key (401/403), but PI_LLAMA_SLOT_PAGING_API_KEY is not configured. " +
+          "Slot save/restore has been disabled for this session. Configure the key or start llama-server without --api-key.",
+        );
+        state.sessionDisabled = true;
+        state.authProbeDone = true;
+      } else {
+        idxErr("Error restoring main slot:", msg);
+        showWarning(`Failed to restore main slot: ${msg}`);
+        state.sessionDisabled = true;
+      }
+      metrics?.endRestoreSlot(slotRestoreStart > 0 ? Date.now() - slotRestoreStart : 0);
     }
   }
 
@@ -190,6 +260,7 @@ export default function (pi: ExtensionAPI) {
       () => activeSubagentCount,
       () => state.modelId,
       () => state.baseUrl,
+      () => apiKey,
     ),
   );
 
@@ -295,6 +366,12 @@ export default function (pi: ExtensionAPI) {
 
   pi.on("session_shutdown", async () => {
     idxInfo("session_shutdown");
+    if (metrics) {
+      const summary = metrics.getSessionSummary();
+      if (summary) {
+        idxInfo("Session metrics summary", JSON.stringify(summary, null, 2));
+      }
+    }
     for (const unsub of cleanupFns) {
       unsub();
     }

@@ -1,6 +1,21 @@
 # NEXT_ITEMS.md — Pending Work
 
-## 1. API Key Support
+## 1. Double-check Metrics
+
+**Priority:** Medium (just verify)
+**Status:** In progress — pending current subagent to complete
+
+**What needs to happen:**
+- After the current subagent completes, verify the metrics log has correct `wall_restore_slot_ms` values (non-zero)
+- Quick check: `grep "^\\[METRICS\\]" pi-llama-slots.log | tail -5`
+
+**Acceptance criteria:**
+- `wall_restore_slot_ms` is non-zero and in the expected range (0.6–1.0s on this hardware)
+- Server timing and wall timing are within ~100ms of each other
+
+---
+
+## 2. API Key Support
 
 **Priority:** High  
 **Status:** Not implemented

@@ -63,6 +63,17 @@ export function logErr(op: string, err: unknown): void {
 
 // ---- Types ----
 
+/** Build fetch headers, including Bearer token if api_key is provided. */
+function buildHeaders(apiKey: string | undefined): Record<string, string> {
+  if (apiKey && apiKey.length > 0) {
+    return {
+      "Content-Type": "application/json",
+      "Authorization": `Bearer ${apiKey}`,
+    };
+  }
+  return { "Content-Type": "application/json" };
+}
+
 export interface SlotSaveResult {
   id_slot: number;
   filename: string;
@@ -86,6 +97,7 @@ export async function saveSlot(
   baseUrl: string,
   modelId: string,
   slotName: string,
+  apiKey?: string,
 ): Promise<SlotSaveResult> {
   const url = `${baseUrl}/slots/0?action=save`;
   const body = {
@@ -93,7 +105,7 @@ export async function saveSlot(
     filename: slotName,
   };
 
-  logOp("saveSlot", { url, body });
+  logOp("saveSlot", { url, body, hasApiKey: !!apiKey });
 
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), BACKEND_TIMEOUT * 1000);
@@ -103,7 +115,7 @@ export async function saveSlot(
   try {
     response = await fetch(url, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: buildHeaders(apiKey),
       body: JSON.stringify(body),
       signal: controller.signal,
     });
@@ -138,11 +150,12 @@ export async function saveSlot(
 export async function isModelLoaded(
   baseUrl: string,
   modelId: string,
+  apiKey?: string,
 ): Promise<boolean> {
   const url = `${baseUrl}/v1/models`;
-  logOp("isModelLoaded", { url, modelId });
+  logOp("isModelLoaded", { url, modelId, hasApiKey: !!apiKey });
 
-  const response = await fetch(url);
+  const response = await fetch(url, { headers: buildHeaders(apiKey) });
   if (!response.ok) {
     logErr("isModelLoaded", { status: response.status, statusText: response.statusText });
     return false;
@@ -165,12 +178,13 @@ export async function waitForModelLoaded(
   modelId: string,
   maxRetries: number = MODEL_LOAD_MAX_RETRIES,
   intervalMs: number = MODEL_LOAD_POLL_INTERVAL,
+  apiKey?: string,
 ): Promise<void> {
   logOp("waitForModelLoaded", { baseUrl, modelId, maxRetries, intervalMs });
   let attempts = 0;
   for (let i = 0; i < maxRetries; i++) {
     attempts++;
-    const loaded = await isModelLoaded(baseUrl, modelId);
+    const loaded = await isModelLoaded(baseUrl, modelId, apiKey);
     if (loaded) {
       logResp("waitForModelLoaded", { attempts, modelId });
       return; // Model is loaded, proceed
@@ -191,10 +205,11 @@ export async function waitForModelLoaded(
 export async function loadModel(
   baseUrl: string,
   modelId: string,
+  apiKey?: string,
 ): Promise<void> {
   const url = `${baseUrl}/models/load`;
   const body = { model: modelId };
-  logOp("loadModel", { url, body });
+  logOp("loadModel", { url, body, hasApiKey: !!apiKey });
 
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), BACKEND_TIMEOUT * 1000);
@@ -203,7 +218,7 @@ export async function loadModel(
   try {
     const response = await fetch(url, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: buildHeaders(apiKey),
       body: JSON.stringify(body),
       signal: controller.signal,
     });
@@ -233,12 +248,13 @@ export async function waitForModelLoadedExplicit(
   modelId: string,
   maxRetries: number = MODEL_LOAD_COMPLETE_MAX_RETRIES,
   intervalMs: number = MODEL_LOAD_STATUS_INTERVAL,
+  apiKey?: string,
 ): Promise<void> {
   logOp("waitForModelLoadedExplicit", { baseUrl, modelId, maxRetries, intervalMs });
   let attempts = 0;
   for (let i = 0; i < maxRetries; i++) {
     attempts++;
-    const loaded = await isModelLoaded(baseUrl, modelId);
+    const loaded = await isModelLoaded(baseUrl, modelId, apiKey);
     if (loaded) {
       logResp("waitForModelLoadedExplicit", { attempts, modelId });
       return;
@@ -257,6 +273,7 @@ export async function restoreSlot(
   baseUrl: string,
   modelId: string,
   slotName: string,
+  apiKey?: string,
 ): Promise<SlotRestoreResult> {
   const url = `${baseUrl}/slots/0?action=restore`;
   const body = {
@@ -264,7 +281,7 @@ export async function restoreSlot(
     filename: slotName,
   };
 
-  logOp("restoreSlot", { url, body });
+  logOp("restoreSlot", { url, body, hasApiKey: !!apiKey });
 
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), BACKEND_TIMEOUT * 1000);
@@ -274,7 +291,7 @@ export async function restoreSlot(
   try {
     response = await fetch(url, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: buildHeaders(apiKey),
       body: JSON.stringify(body),
       signal: controller.signal,
     });
