@@ -67,7 +67,7 @@ This extension is designed and tested on local laptop setups with limited memory
 ### Known Limitations
 
 - **API key support**: Implemented via `PI_LLAMA_SLOT_PAGING_API_KEY` environment variable (see [Configuration](#api-key-support)). If llama-server requires auth but no key is configured, the extension gracefully disables for the session.
-- **Model change in main session**: if the model used by the main session changes during a session, this can cause crashes or side effects. Slot state is model-specific, and a model switch invalidates the cached KV state. This needs to be tracked and handled properly (see [NEXT_ITEMS.md](docs/NEXT_ITEMS.md)).
+- **Model change in main session**: The extension now tracks the model ID used when the slot was last saved. If the main session model changes, restore is refused with a TUI warning, preventing corrupted KV cache state. A fresh slot is used for the new model (see [Future Work](#future-work)).
 - **`-np 1` is a hardware ceiling, not a config default**: Tested setups (32 GB unified iGPU, 6 GB VRAM discrete) don't have memory headroom for concurrent slots at the context sizes this extension targets (up to 78k tokens). Per-subagent slots (multi-slot pool) would require `-np > 1` and meaningfully more VRAM/RAM than either tested machine has — not planned for this hardware class, untested on higher-memory setups.
 
 ## Built With Itself
@@ -203,6 +203,7 @@ Checks backend connectivity, resolved model configuration, and reports available
   "available_slots": [
     { "name": "main", "file": "main" }
   ],
+  "last_saved_model": "Qwen3.6-35B-Chat",
   "note": "Slot files are stored on the llama-server filesystem. Slot save/restore is automatic, driven by subagent lifecycle events. Configuration is resolved via runtime autodiscovery from ctx.model. Use llama_slot_status to check backend connectivity."
 }
 ```
@@ -216,6 +217,7 @@ Checks backend connectivity, resolved model configuration, and reports available
 | `session_disabled` | `true` if slot save/restore is disabled for the session |
 | `disable_reason` | Explanation of why slots are disabled |
 | `slots_probe` | `{ supported: boolean, reason: string }` — backend probe result |
+| `last_saved_model` | Model ID used when the slot was last saved, or `null` if no save has occurred yet. Used for model mismatch detection on restore. |
 
 ## Features
 
@@ -229,6 +231,7 @@ Checks backend connectivity, resolved model configuration, and reports available
 | Hardcoded Defaults | Runtime autodiscovery for model/routing; hardcoded for timeouts/retries (configurable in code) |
 | Backend Detection | Auto-probe on session start; graceful disable if slots API unavailable |
 | Subagent Models | Supports dispatching subagents with models different from the main session model |
+| Model Change Tracking | Tracks model ID on save; refuses restore with TUI warning if model changed since last save |
 
 ## Backend Detection
 
@@ -257,7 +260,7 @@ The `llama_slot_status` tool now includes these additional fields when a probe h
 
 ## Future Work
 
-- **Model change tracking**: Detect when the main session model changes and handle gracefully (save/restore state is model-specific).
+- **Model change tracking**: The extension now tracks the model ID used when the slot was last saved. If the model changes, restore is refused with a TUI warning. Future: auto-detect model changes on restore and attempt a best-effort restore anyway with user confirmation.
 - **One slot per subagent**: Currently all subagents share the `main` slot. Future: one slot per subagent.
 - **Slot status monitoring**: Track which slot is currently active.
 - **Pruning**: LRU eviction for slot files when storage grows too large.

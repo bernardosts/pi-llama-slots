@@ -59,32 +59,7 @@ The extension currently makes raw `fetch()` calls with only `Content-Type: appli
 
 ---
 
-## 3. Model Change Tracking
-
-**Priority:** High  
-**Status:** Not implemented
-
-**Problem:** Slot state is model-specific. If the model used by the main session changes during a session, the cached KV state in the slot is invalid for the new model. This can cause crashes or silent corruption.
-
-**What needs to happen:**
-- Track the model ID used when the slot was last saved
-- On each save/restore cycle, compare the current model with the saved model
-- If the model has changed:
-  - Detect the mismatch
-  - Show a TUI warning explaining the model change
-  - Either: (a) refuse to restore and clear the slot, or (b) auto-clear the slot and warn the user
-  - Do not attempt to restore stale model-specific state
-
-**Acceptance criteria:**
-- Extension tracks `model_id` alongside slot state
-- Model mismatch is detected before restore
-- User is notified via TUI when a model change is detected
-- No restore is attempted with a mismatched model
-- Session remains stable after a model change
-
----
-
-## 4. One Slot Per Subagent
+## 3. One Slot Per Subagent
 
 **Priority:** Medium  
 **Status:** Not implemented
@@ -105,7 +80,7 @@ The extension currently makes raw `fetch()` calls with only `Content-Type: appli
 
 ---
 
-## 5. Slot Status Monitoring
+## 4. Slot Status Monitoring
 
 **Priority:** Low  
 **Status:** Not implemented

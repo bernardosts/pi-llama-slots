@@ -21,6 +21,7 @@ export function createStatusTool(
   getApiKey: () => string | undefined = () => undefined,
   getSessionDisabled: () => boolean = () => false,
   getSlotsProbeResult: () => { slotsSupported: boolean; reason: string } | null = () => null,
+  getLastSavedModelId: () => string | null = () => null,
 ) {
   return {
     name: "llama_slot_status",
@@ -65,6 +66,7 @@ export function createStatusTool(
 
         const sessionDisabled = getSessionDisabled();
         const probeResult = getSlotsProbeResult();
+        const lastSavedModelId = getLastSavedModelId();
 
         const slotNames = SLOT_NAMES.map((name) => ({
           name,
@@ -77,6 +79,7 @@ export function createStatusTool(
           backend_status: healthStatus,
           active_subagent_count: activeSubagentCount(),
           available_slots: slotNames,
+          last_saved_model: lastSavedModelId,
           note: "Slot files are stored on the llama-server filesystem. " +
             "Slot save/restore is automatic, driven by subagent lifecycle events. " +
             "Configuration is resolved via runtime autodiscovery from ctx.model. " +

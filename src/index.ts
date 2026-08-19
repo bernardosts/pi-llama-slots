@@ -72,6 +72,8 @@ function setWarningContext(notify: (message: string, type?: "warning" | "error")
 interface SlotPagingState {
   baseUrl: string | null;
   modelId: string | null;
+  /** Model ID that was current when the slot was last saved. null = no save has occurred yet. */
+  lastSavedModelId: string | null;
   sessionDisabled: boolean;
   /** True once we have confirmed auth is not required (or not configured). */
   authProbeDone: boolean;
@@ -96,6 +98,7 @@ export default function (pi: ExtensionAPI) {
   const state: SlotPagingState = {
     baseUrl: null,
     modelId: null,
+    lastSavedModelId: null,
     sessionDisabled: false,
     authProbeDone: false,
     slotsProbeResult: null,
@@ -172,6 +175,10 @@ export default function (pi: ExtensionAPI) {
       idxInfo("saveSlot SUCCESS", result);
       metrics?.endSave(result);
 
+      // Track the model used for this save
+      state.lastSavedModelId = state.modelId;
+      idxInfo("Slot save tracked — model:", state.modelId);
+
       // Auth probe: if this is the first call and we got 401/403, detect it
       if (!state.authProbeDone) {
         state.authProbeDone = true;
@@ -214,7 +221,7 @@ export default function (pi: ExtensionAPI) {
    *   3. POST /slots/0?action=restore (model is idle, no race)
    */
   async function handleRestoreMainSlot(): Promise<void> {
-    idxInfo("handleRestoreMainSlot START", { sessionDisabled: state.sessionDisabled, baseUrl: state.baseUrl, modelId: state.modelId });
+    idxInfo("handleRestoreMainSlot START", { sessionDisabled: state.sessionDisabled, baseUrl: state.baseUrl, modelId: state.modelId, lastSavedModelId: state.lastSavedModelId });
     if (state.sessionDisabled) {
       idxInfo("handleRestoreMainSlot SKIPPED (sessionDisabled)");
       return;
@@ -223,6 +230,19 @@ export default function (pi: ExtensionAPI) {
       idxErr("Cannot restore: baseUrl or modelId not resolved.", { baseUrl: state.baseUrl, modelId: state.modelId });
       return;
     }
+
+    // Model mismatch check: refuse restore if the model changed since the last save
+    if (state.lastSavedModelId !== null && state.lastSavedModelId !== state.modelId) {
+      const oldModel = state.lastSavedModelId;
+      const newModel = state.modelId;
+      idxWarn("Model mismatch detected — refusing restore. Saved with:", oldModel, "Current:", newModel);
+      showWarning(
+        `Model changed from '${oldModel}' (saved with) to '${newModel}' (current). Slot restore skipped to prevent corruption. A fresh slot will be used.`,
+      );
+      state.lastSavedModelId = state.modelId;
+      return;
+    }
+
     metrics?.startRestore(state.modelId);
     let slotRestoreStart = 0; // wall-clock start of slot restore phase
     try {
@@ -295,6 +315,7 @@ export default function (pi: ExtensionAPI) {
       () => apiKey,
       () => state.sessionDisabled,
       () => state.slotsProbeResult,
+      () => state.lastSavedModelId,
     ),
   );
 
@@ -327,6 +348,7 @@ export default function (pi: ExtensionAPI) {
       // Reset state for new session
       state.baseUrl = baseUrl;
       state.modelId = modelId;
+      state.lastSavedModelId = null;
       state.sessionDisabled = false;
       state.slotsProbeResult = null;
 
@@ -417,5 +439,6 @@ export default function (pi: ExtensionAPI) {
     activeSubagentCount = 0;
     state.baseUrl = null;
     state.modelId = null;
+    state.lastSavedModelId = null;
   });
 }
