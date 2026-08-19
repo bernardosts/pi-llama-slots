@@ -90,14 +90,6 @@ export interface SlotRestoreResult {
   timings: { restore_ms: number };
 }
 
-/** Result of the backend probe operation. */
-export interface ProbeResult {
-  /** Whether the slots API is available. */
-  slotsSupported: boolean;
-  /** Reason for the result (success detail or failure reason). */
-  reason: string;
-}
-
 // ---- Slot operations ----
 
 /** Save the current llama-server slot state to a named file. */
@@ -274,116 +266,6 @@ export async function waitForModelLoadedExplicit(
   );
   logErr("waitForModelLoadedExplicit", { error: err.message, attempts, modelId });
   throw err;
-}
-
-/**
- * Probe the backend to check if the llama slots API is available.
- *
- * Flow:
- *   1. Try GET /v1/models — if this fails, the server may not be OpenAI-compatible.
- *   2. Try POST /slots/0?action=save with a minimal dry-save (2s timeout).
- *      If response has slot-related fields, slots are supported.
- *      If 404/501/other error, slots are NOT supported.
- *
- * If the probe itself fails (network error, timeout), returns { slotsSupported: true }
- * to NOT disable — just skip probing (graceful degradation).
- *
- * @param baseUrl - The llama-server base URL (e.g. http://192.168.3.7:8080)
- * @param apiKey - Optional API key
- * @param modelId - Optional model name to use in probe save request (avoids "model not found" errors)
- * @returns ProbeResult with slotsSupported flag and reason
- */
-export async function probeSlotsApi(
-  baseUrl: string,
-  apiKey?: string,
-  modelId?: string,
-): Promise<ProbeResult> {
-  logOp("probeSlotsApi", { baseUrl, hasApiKey: !!apiKey });
-
-  // Step 1: Try GET /v1/models to verify OpenAI-compatible API is responding
-  const modelsUrl = `${baseUrl}/v1/models`;
-  let modelsOk = false;
-  try {
-    const modelsResp = await fetch(modelsUrl, {
-      method: "GET",
-      headers: buildHeaders(apiKey),
-      signal: AbortSignal.timeout(3000),
-    });
-    modelsOk = modelsResp.ok;
-    logResp("probeSlotsApi", { step: "v1/models", ok: modelsOk, status: modelsResp.status });
-  } catch (err) {
-    const errMsg = err instanceof Error ? err.message : String(err);
-    logResp("probeSlotsApi", { step: "v1/models", error: errMsg });
-  }
-
-  // If /v1/models fails, probe failed — but we DON'T disable (graceful degradation).
-  // However, if /v1/models works but slots don't, that IS a definitive failure.
-  if (!modelsOk) {
-    logErr("probeSlotsApi", { reason: "GET /v1/models failed, skipping slot probe" });
-    // Return true to not disable — server might still work with different API style
-    return { slotsSupported: true, reason: "GET /v1/models failed, skipping slot probe" };
-  }
-
-  // Step 2: Try a minimal dry-save with short timeout
-  const slotUrl = `${baseUrl}/slots/0?action=save`;
-  const probeTimeout = 2000; // 2s max for probe
-  const probeController = new AbortController();
-  const probeTimer = setTimeout(() => probeController.abort(), probeTimeout);
-  const probeStart = Date.now();
-
-  try {
-    const probeResp = await fetch(slotUrl, {
-      method: "POST",
-      headers: buildHeaders(apiKey),
-      body: JSON.stringify({
-        model: modelId || undefined,
-        filename: "__probe__",
-      }),
-      signal: probeController.signal,
-    });
-    clearTimeout(probeTimer);
-    const elapsed = Date.now() - probeStart;
-    logResp("probeSlotsApi", { step: "slot-save", status: probeResp.status, elapsed_ms: elapsed });
-
-    if (!probeResp.ok) {
-      const text = await probeResp.text().catch(() => "");
-      const reason = `POST /slots/0?action=save returned HTTP ${probeResp.status}`;
-      logErr("probeSlotsApi", { reason, detail: text });
-      return { slotsSupported: false, reason };
-    }
-
-    // Step 3: Check if response has slot-related fields
-    const text = await probeResp.text();
-    let parsed: unknown;
-    try {
-      parsed = JSON.parse(text);
-    } catch {
-      // Not JSON — slots endpoint returned something unexpected
-      return { slotsSupported: false, reason: "POST /slots/0?action=save returned non-JSON response" };
-    }
-
-    const obj = parsed as Record<string, unknown>;
-    const hasSlotFields =
-      typeof obj.id_slot === "number" &&
-      typeof obj.n_saved === "number" &&
-      typeof obj.timings === "object" &&
-      obj.timings !== null;
-
-    if (hasSlotFields) {
-      logResp("probeSlotsApi", { step: "slot-save", result: "slots supported", parsed });
-      return { slotsSupported: true, reason: "slots API probe succeeded" };
-    } else {
-      logErr("probeSlotsApi", { step: "slot-save", result: "no slot fields", parsed: obj });
-      return { slotsSupported: false, reason: "POST /slots/0?action=save returned response without expected slot fields" };
-    }
-  } catch (err) {
-    const elapsed = Date.now() - probeStart;
-    clearTimeout(probeTimer);
-    const errMsg = err instanceof Error ? err.message : String(err);
-    // Probe itself failed (timeout, network error) — DO NOT disable
-    logResp("probeSlotsApi", { step: "slot-save", error: errMsg, elapsed_ms: elapsed });
-    return { slotsSupported: true, reason: `probe error (${errMsg}), skipped` };
-  }
 }
 
 /** Restore a previously saved llama-server slot state from a named file. */

@@ -28,17 +28,17 @@
 
 ---
 
-## 3. Non-llama Endpoint Detection
+## 3. Fail-First-Disable Strategy
 
 **Priority:** High  
-**Status:** ✅ Implemented in `923f28e`
+**Status:** ✅ Implemented (replaced probe-based detection)
 
-**Implemented:**
-- Backend probe on `session_start`: `GET /v1/models` + `POST /slots/0?action=save` (2s timeout)
-- Graceful session disable if slots API not available
-- TUI warning + clear log message on disable
-- Status tool reports `slotsProbeResult` field
-- Network errors skip probe (no false disable)
+**Strategy:**
+- NO probe at session start — zero pre-checks, zero extra network calls
+- On the FIRST save attempt, if we get a non-200 status → show TUI warning + set `sessionDisabled = true`
+- If save succeeds (200), proceed normally
+- Auth failure (401/403 with no key) also triggers session disable on any attempt
+- Status tool no longer reports `slotsProbeResult`; reports generic `disable_reason`
 
 ---
 

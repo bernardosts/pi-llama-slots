@@ -20,7 +20,6 @@ export function createStatusTool(
   getResolvedBaseUrl: () => string | null,
   getApiKey: () => string | undefined = () => undefined,
   getSessionDisabled: () => boolean = () => false,
-  getSlotsProbeResult: () => { slotsSupported: boolean; reason: string } | null = () => null,
   getLastSavedModelId: () => string | null = () => null,
 ) {
   return {
@@ -65,7 +64,6 @@ export function createStatusTool(
         const resolvedBaseUrl = getResolvedBaseUrl();
 
         const sessionDisabled = getSessionDisabled();
-        const probeResult = getSlotsProbeResult();
         const lastSavedModelId = getLastSavedModelId();
 
         const slotNames = SLOT_NAMES.map((name) => ({
@@ -89,16 +87,6 @@ export function createStatusTool(
         if (sessionDisabled) {
           result.session_disabled = true;
           result.disable_reason = "Session save/restore has been disabled due to a prior error.";
-          if (probeResult) {
-            result.disable_reason = `llama slots API not available (${probeResult.reason})`;
-          }
-        }
-
-        if (probeResult) {
-          result.slots_probe = {
-            supported: probeResult.slotsSupported,
-            reason: probeResult.reason,
-          };
         }
 
         return {
