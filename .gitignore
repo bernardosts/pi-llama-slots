@@ -1,0 +1,17 @@
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+
+# Logs
+*.log
+
+# Local dev workflow (per-developer)
+CONTINUATION_PROMPT.md
+
+# Pi system folder
+.pi/
+
+# Editor
+.vscode/

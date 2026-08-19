@@ -1,0 +1,34 @@
+{
+  "name": "pi-llama-slots",
+  "version": "0.1.0",
+  "description": "Automatic llama-server slot save/restore for pi coding agent orchestrator pattern",
+  "type": "module",
+  "keywords": [
+    "pi-package",
+    "pi",
+    "pi-extension",
+    "llama",
+    "llama-server",
+    "kv-cache",
+    "orchestrator",
+    "subagent"
+  ],
+  "files": [
+    "src/",
+    "package.json"
+  ],
+  "pi": {
+    "extensions": [
+      "./src/index.ts"
+    ]
+  },
+  "dependencies": {
+    "@sinclair/typebox": "^0.34.9"
+  },
+  "peerDependencies": {
+    "@tintinweb/pi-subagents": "*"
+  },
+  "devDependencies": {
+    "typescript": "^5.9.3"
+  }
+}
