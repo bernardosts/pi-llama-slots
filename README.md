@@ -213,6 +213,9 @@ Checks backend connectivity, resolved model configuration, and reports available
 |-------|----------------|
 | `backend_status` | `"healthy"`, `"unknown"`, `"unreachable"`, or `"http_${status_code}"` |
 | `active_subagent_count` | Currently a placeholder — always `0`. Planned: track live subagent count. |
+| `session_disabled` | `true` if slot save/restore is disabled for the session |
+| `disable_reason` | Explanation of why slots are disabled |
+| `slots_probe` | `{ supported: boolean, reason: string }` — backend probe result |
 
 ## Features
 
@@ -224,11 +227,36 @@ Checks backend connectivity, resolved model configuration, and reports available
 | Slots | 1 (main, sequential save/restore per subagent dispatch) |
 | Configuration | Runtime autodiscovery (ctx.model only) |
 | Hardcoded Defaults | Runtime autodiscovery for model/routing; hardcoded for timeouts/retries (configurable in code) |
+| Backend Detection | Auto-probe on session start; graceful disable if slots API unavailable |
 | Subagent Models | Supports dispatching subagents with models different from the main session model |
+
+## Backend Detection
+
+On session start, the extension automatically probes the backend to verify llama-server slots API support:
+
+1. **GET /v1/models** — verifies the server responds to OpenAI-compatible API calls
+2. **POST /slots/0?action=save** — sends a minimal dry-save request and checks for slot-related fields (`id_slot`, `n_saved`, `timings`)
+
+If the probe detects that slots are **not supported**, the extension:
+- Sets `sessionDisabled = true` for the remainder of the session
+- Logs `"llama slots API not available, disabling"` with the reason
+- Shows a TUI warning explaining why
+- Reports the probe result in the `llama_slot_status` tool output
+
+If the probe itself fails (network error, timeout), the extension **does NOT disable** — it continues in a best-effort mode.
+
+### Status Tool Fields
+
+The `llama_slot_status` tool now includes these additional fields when a probe has been performed:
+
+| Field | Description |
+|-------|-------------|
+| `session_disabled` | `true` if slot save/restore is disabled |
+| `disable_reason` | Explanation of why slots are disabled |
+| `slots_probe` | Probe result object: `{ supported: boolean, reason: string }` |
 
 ## Future Work
 
-- **Non-llama endpoint detection**: Detect when the backend does not support the llama slots API and gracefully disable the extension for the remainder of the session.
 - **Model change tracking**: Detect when the main session model changes and handle gracefully (save/restore state is model-specific).
 - **One slot per subagent**: Currently all subagents share the `main` slot. Future: one slot per subagent.
 - **Slot status monitoring**: Track which slot is currently active.

@@ -19,6 +19,8 @@ export function createStatusTool(
   getModelId: () => string | null,
   getResolvedBaseUrl: () => string | null,
   getApiKey: () => string | undefined = () => undefined,
+  getSessionDisabled: () => boolean = () => false,
+  getSlotsProbeResult: () => { slotsSupported: boolean; reason: string } | null = () => null,
 ) {
   return {
     name: "llama_slot_status",
@@ -61,34 +63,50 @@ export function createStatusTool(
         const modelId = getModelId();
         const resolvedBaseUrl = getResolvedBaseUrl();
 
+        const sessionDisabled = getSessionDisabled();
+        const probeResult = getSlotsProbeResult();
+
         const slotNames = SLOT_NAMES.map((name) => ({
           name,
           file: name,
         }));
 
+        const result: Record<string, unknown> = {
+          backend_url: resolvedBaseUrl ?? backendUrl,
+          model_id: modelId,
+          backend_status: healthStatus,
+          active_subagent_count: activeSubagentCount(),
+          available_slots: slotNames,
+          note: "Slot files are stored on the llama-server filesystem. " +
+            "Slot save/restore is automatic, driven by subagent lifecycle events. " +
+            "Configuration is resolved via runtime autodiscovery from ctx.model. " +
+            "Use llama_slot_status to check backend connectivity.",
+        };
+
+        if (sessionDisabled) {
+          result.session_disabled = true;
+          result.disable_reason = "Session save/restore has been disabled due to a prior error.";
+          if (probeResult) {
+            result.disable_reason = `llama slots API not available (${probeResult.reason})`;
+          }
+        }
+
+        if (probeResult) {
+          result.slots_probe = {
+            supported: probeResult.slotsSupported,
+            reason: probeResult.reason,
+          };
+        }
+
         return {
           content: [
             {
               type: "text",
-              text: JSON.stringify(
-                {
-                  backend_url: resolvedBaseUrl ?? backendUrl,
-                  model_id: modelId,
-                  backend_status: healthStatus,
-                  active_subagent_count: activeSubagentCount(),
-                  available_slots: slotNames,
-                  note: "Slot files are stored on the llama-server filesystem. " +
-                    "Slot save/restore is automatic, driven by subagent lifecycle events. " +
-                    "Configuration is resolved via runtime autodiscovery from ctx.model. " +
-                    "Use llama_slot_status to check backend connectivity.",
-                },
-                null,
-                2,
-              ),
+              text: JSON.stringify(result, null, 2),
             },
           ],
           details: {},
-          isError: !healthOk,
+          isError: !healthOk || sessionDisabled,
         };
       } catch (error) {
         return {

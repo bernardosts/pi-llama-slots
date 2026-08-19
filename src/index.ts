@@ -21,7 +21,7 @@
 
 import * as fs from "fs";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { saveSlot, restoreSlot, loadModel, waitForModelLoadedExplicit, isModelLoaded } from "./slot-client.js";
+import { saveSlot, restoreSlot, loadModel, waitForModelLoadedExplicit, isModelLoaded, probeSlotsApi } from "./slot-client.js";
 import { createStatusTool } from "./slot-status.js";
 import { createMetrics } from "./metrics.js";
 
@@ -75,6 +75,8 @@ interface SlotPagingState {
   sessionDisabled: boolean;
   /** True once we have confirmed auth is not required (or not configured). */
   authProbeDone: boolean;
+  /** Result of the llama slots API probe. null = probe was not attempted. */
+  slotsProbeResult: { slotsSupported: boolean; reason: string } | null;
 }
 
 export default function (pi: ExtensionAPI) {
@@ -96,6 +98,7 @@ export default function (pi: ExtensionAPI) {
     modelId: null,
     sessionDisabled: false,
     authProbeDone: false,
+    slotsProbeResult: null,
   };
 
   // ---- API Key Configuration ----
@@ -119,6 +122,35 @@ export default function (pi: ExtensionAPI) {
 
   /** Metrics collector — null when logging is disabled. */
   const metrics = createMetrics();
+
+  // ---- Backend probe ----
+
+  /**
+   * Probe the backend for llama slots API support.
+   * Runs once on session_start. If slots are not supported,
+   * disables the extension for the remainder of the session.
+   */
+  async function runBackendProbe(): Promise<void> {
+    if (!state.baseUrl) {
+      idxInfo("Backend probe SKIPPED: baseUrl not resolved");
+      return;
+    }
+
+    idxInfo("Backend probe START, probing slots API at:", state.baseUrl);
+    const probeResult = await probeSlotsApi(state.baseUrl, apiKey);
+    state.slotsProbeResult = probeResult;
+    idxInfo("Backend probe result", probeResult);
+
+    if (!probeResult.slotsSupported) {
+      idxWarn("llama slots API not available, disabling for session.", probeResult.reason);
+      state.sessionDisabled = true;
+      showWarning(
+        "llama slots API not available — this backend does not support the llama-server slots API. " +
+        "Slot save/restore has been disabled for this session. " +
+        (probeResult.reason ? `Reason: ${probeResult.reason}` : "The probe did not return a valid slot response."),
+      );
+    }
+  }
 
   // ---- Slot management helpers ----
 
@@ -261,6 +293,8 @@ export default function (pi: ExtensionAPI) {
       () => state.modelId,
       () => state.baseUrl,
       () => apiKey,
+      () => state.sessionDisabled,
+      () => state.slotsProbeResult,
     ),
   );
 
@@ -294,9 +328,13 @@ export default function (pi: ExtensionAPI) {
       state.baseUrl = baseUrl;
       state.modelId = modelId;
       state.sessionDisabled = false;
+      state.slotsProbeResult = null;
 
       // Set up TUI warning context for this session
       setWarningContext(ctx.ui.notify.bind(ctx.ui));
+
+      // Probe backend for slots API support before registering handlers
+      await runBackendProbe();
 
       // Record the main session model ID on first session_start.
       // This is the model that will be loaded in the slot when the main
