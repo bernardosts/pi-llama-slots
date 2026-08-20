@@ -260,6 +260,68 @@ Raw metrics data from testing sessions is available in [`docs/artifacts/pi-llama
 
 > **Missing counterfactual data**: This section shows the *cost* of save/restore (787 ms wall save, 579 ms wall restore). It does **not** show the *benefit* — dispatch latency with paging on vs `PI_LLAMA_SLOT_PAGING_DISABLED=1` at matched context sizes. That comparison (dispatch latency with KV cache preserved vs. full re-encode) is the key metric for net usefulness and is not yet available.
 
+## Experimental Results — Prefill Time: Slots ON vs OFF
+
+**Test setup:**
+- Model: Qwen3.6-35B-A3B-MTP @ IQ4_XS quantization
+- Hardware: Intel Core Ultra 7 258V (Arc 140V iGPU), 32 GB unified memory
+- Task: Two research subagent tasks (Moser spindle graph, Pocklington primality test)
+- Measurement: Time from subagent-completion `tool_result` event to next assistant `tool_call` (prefill/re-encode gap)
+- Scripts: [`docs/artifacts/analyze_turn_gaps.py`](docs/artifacts/analyze_turn_gaps.py)
+
+### Run-001 (original `get_subagent_result` pattern)
+
+| Metric | Slots ON | Slots OFF | Delta | Direction |
+|--------|----------|-----------|-------|-----------|
+| Tasks | 2 | 2 | — | — |
+| Min | 6.4s | 11.0s | — | — |
+| Max | 7.6s | 133.6s | — | — |
+| **Avg** | **7.0s** | **72.3s** | **-65.3s** | **ON faster** |
+
+**Pairwise:** 2/2 — Slots ON faster in every case.
+
+**Key finding:** The OFF Task 2 took 133.6s vs ON's 7.6s (17.6x worse). Context was ~18k tokens by that point — without a saved KV cache, the full re-encode cost compounded.
+
+### Run-002 (newer `Agent` tool pattern)
+
+| Metric | Slots ON | Slots OFF | Delta |
+|--------|----------|-----------|-------|
+| Tasks | 7 | 5 | — |
+| Min | 61.0s | 80.5s | — |
+| Max | 75.5s | 99.7s | — |
+| **Avg** | **68.5s** | **86.2s** | **-17.7s** |
+
+**Pairwise:** 5/5 — Slots ON faster in every case.
+
+**Consistency:** Slots ON shows very tight variance (61-75s, std ~4.5s) vs OFF (80-100s, std ~7.2s).
+
+### Run-002 Extension Log Evidence
+
+8 successful `restore_full` operations, each restoring **400-500MB** of KV cache (16k-21k tokens). The `wall_restore_slot_ms` component was consistently **282-364ms** — the actual slot restore time. The bulk of the ~18-22s wall time per restore comes from `wall_restore_wait_ms` (15-21s), which is the model load/reload time while waiting for the subagent to complete.
+
+### Data-Based Observations
+
+1. **Consistent signal across both runs:** Slots ON is faster than Slots OFF — 2/2 in run-001, 5/5 in run-002. The direction is unambiguous.
+
+2. **Magnitude varies by context growth:** The savings are huge in run-001 (65s avg) but more modest in run-002 (18s avg). Run-002's absolute times (61-99s) are much higher overall, suggesting the base model load is dominant and slot restore only saves the incremental re-encode portion. As context grows, the saved KV cache prevents progressive re-encode cost accumulation.
+
+3. **Outlier analysis — run-001 OFF:** The 133.6s OFF time on task 2 shows what happens when context grows without slot preservation — without a saved KV cache, the full re-encode cost compounds with each dispatch.
+
+4. **Variance reduction:** Slots ON provides more predictable recovery times, with ~40% lower standard deviation in run-002 (4.5s vs 7.2s).
+
+5. **Extension is operational:** Run-002 logs confirm slot save/restore fires on every subagent cycle with successful KV cache restoration at 400-500MB per snapshot.
+
+### Test Data
+
+Test artifacts are stored in [`docs/artifacts/test-outputs/`](docs/artifacts/test-outputs/):
+
+| Run | Slots ON | Slots OFF |
+|-----|----------|-----------|
+| run-001 | `test-scenario-slots-on.jsonl` | `test-scenario-slots-off.jsonl` |
+| run-002 | `slots-on-session.jsonl` | `slots-off-session.jsonl` |
+
+Analysis output: `python3 docs/artifacts/analyze_turn_gaps.py <on.jsonl> <off.jsonl>`
+
 ## Features
 
 | Feature | Detail |

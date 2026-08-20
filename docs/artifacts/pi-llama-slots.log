@@ -1,4 +1,0 @@
-[2026-08-19T23:38:38.835Z] [INFO] tool_result event received {"toolCallId":"558shE4apCKuwW4QnpszLmkLkpRht5Yn","inputKeys":["command"]}
-[2026-08-19T23:39:12.364Z] [INFO] tool_call event received {"toolName":"read","toolCallId":"O7SDkQWuJZYSLqMA5hYVAoZQWWmO3zyh"}
-[2026-08-19T23:39:12.371Z] [INFO] tool_result event received {"toolCallId":"O7SDkQWuJZYSLqMA5hYVAoZQWWmO3zyh","inputKeys":["path"]}
-[2026-08-19T23:39:53.014Z] [INFO] tool_call event received {"toolName":"bash","toolCallId":"yV6sl80YQjeBpRGHyAeARNuqYfTf7eIq"}

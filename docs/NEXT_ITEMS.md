@@ -1,64 +1,49 @@
 # NEXT_ITEMS.md — Pending Work
 
-## 1. Double-check Metrics
+## 1. Pruning / LRU Eviction
 
-**Priority:** Medium (just verify)
-**Status:** In progress — pending current subagent to complete
+**Priority:** Low
+**Status:** Not implemented
+
+**Problem:** Slot files accumulate on the llama-server filesystem over time. There is no cleanup mechanism, which can lead to disk space issues during long sessions.
 
 **What needs to happen:**
-- After the current subagent completes, verify the metrics log has correct `wall_restore_slot_ms` values (non-zero)
-- Quick check: `grep "^\\[METRICS\\]" pi-llama-slots.log | tail -5`
+- Implement LRU (Least Recently Used) eviction for slot files
+- Configurable max number of slot files or max disk usage
+- Automatic cleanup when limits are exceeded
+- Never evict the currently active slot
 
 **Acceptance criteria:**
-- `wall_restore_slot_ms` is non-zero and in the expected range (0.6–1.0s on this hardware)
-- Server timing and wall timing are within ~100ms of each other
+- Slot files are evicted when LRU threshold is reached
+- Currently active slot is never evicted
+- Configurable limits via environment variables or config
+- Cleanup happens automatically without user intervention
 
 ---
 
-## 2. API Key Support
+## 2. Counterfactual Benchmark
 
-**Priority:** High  
-**Status:** ✅ Implemented in `839cde7`
+**Priority:** High
+**Status:** Not started — requires live testing
 
-**Implemented:**
-- `PI_LLAMA_SLOT_PAGING_API_KEY` env var → `Authorization: Bearer <key>` on all fetch calls
-- Auth probe on first save/restore: detects 401/403 → graceful session disable
-- API key never logged (only presence/length in debug logs)
-- Status tool forwards key for health check
+**Problem:** The README shows save/restore *cost* (~787 ms save, ~579 ms restore) but not the *benefit* — dispatch latency with paging on vs `PI_LLAMA_SLOT_PAGING_DISABLED=1` at matched context sizes.
 
----
+**What needs to happen:**
+- Benchmark dispatch latency with slot save/restore active at 3+ context sizes (~20k, ~35k, ~50k tokens)
+- Benchmark dispatch latency with `PI_LLAMA_SLOT_PAGING_DISABLED=1` at the same context sizes
+- Compare the two: does restoring a cached KV state actually reduce dispatch latency vs. full re-encode?
+- Update README with the comparison table
 
-## 3. Fail-First-Disable Strategy
-
-**Priority:** High  
-**Status:** ✅ Implemented (replaced probe-based detection)
-
-**Strategy:**
-- NO probe at session start — zero pre-checks, zero extra network calls
-- On the FIRST save attempt, if we get a non-200 status → show TUI warning + set `sessionDisabled = true`
-- If save succeeds (200), proceed normally
-- Auth failure (401/403 with no key) also triggers session disable on any attempt
-- Status tool no longer reports `slotsProbeResult`; reports generic `disable_reason`
+**Acceptance criteria:**
+- At least 3 context sizes with both conditions (paging on vs disabled)
+- Clear measurement of net dispatch latency difference
+- Results documented in README
 
 ---
 
-## 4. Model Change Tracking
+## 3. One Slot Per Subagent
 
-**Priority:** High  
-**Status:** ✅ Implemented in `3fb0b34`
-
-**Implemented:**
-- Tracks `lastSavedModelId` alongside slot state
-- Refuses restore on model mismatch → TUI warning, fresh slot used
-- Skips restore if `lastSavedModelId` is null (no prior save)
-- Resets on `session_start` (new session, stale slot file)
-- Status tool reports `last_saved_model` field
-
----
-
-## 5. One Slot Per Subagent
-
-**Priority:** Medium  
+**Priority:** Medium
 **Status:** Not implemented
 
 **Problem:** Currently all subagents share the `main` slot. This works for sequential dispatches but does not support parallel subagent execution. If two subagents are dispatched simultaneously, the save/restore cycle would interfere with each other.
@@ -79,7 +64,7 @@
 
 ## 4. Slot Status Monitoring
 
-**Priority:** Low  
+**Priority:** Low
 **Status:** Not implemented
 
 **Problem:** The `active_subagent_count` field in `llama_slot_status` is a placeholder that always returns 0. There is no live tracking of subagent activity.
@@ -97,21 +82,31 @@
 
 ---
 
-## 6. Pruning / LRU Eviction
+## 5. Analyze Real Overhead
 
-**Priority:** Low  
-**Status:** Not implemented
-
-**Problem:** Slot files accumulate on the llama-server filesystem over time. There is no cleanup mechanism, which can lead to disk space issues during long sessions.
+**Priority:** Medium
+**Status:** Not started — requires live testing
 
 **What needs to happen:**
-- Implement LRU (Least Recently Used) eviction for slot files
-- Configurable max number of slot files or max disk usage
-- Automatic cleanup when limits are exceeded
-- Never evict the currently active slot
+- Run 3 sequential subagents
+- Collect metrics from `pi-llama-slots.log`
+- Verify save ~1-1.5s, restore ~0.6-1s on actual dispatches
 
 **Acceptance criteria:**
-- Slot files are evicted when LRU threshold is reached
-- Currently active slot is never evicted
-- Configurable limits via environment variables or config
-- Cleanup happens automatically without user intervention
+- `wall_restore_slot_ms` is non-zero and in the expected range (0.6–1.0s on this hardware)
+- Server timing and wall timing are within ~100ms of each other
+
+---
+
+## Completed Items
+
+| # | Feature | Commit | Status |
+|---|---------|--------|--------|
+| — | Public GitHub repo + MIT license | `c387945` | ✅ |
+| — | Metrics module (`src/metrics.ts`) | — | ✅ |
+| — | Fixed `endRestoreSlot` bug | — | ✅ |
+| — | API Key Support | `839cde7` | ✅ |
+| — | Fail-First-Disable | — | ✅ |
+| — | Model Change Tracking | `3fb0b34` | ✅ |
+| — | README cleanup (tables, claims, redundancy) | `db6d9ce` | ✅ |
+| — | Dynamic co-author in commit messages | — | ✅ |

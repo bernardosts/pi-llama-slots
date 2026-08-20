@@ -38,7 +38,7 @@ SECOND RULE: DO NOT TRY TO START PARALLEL SUBAGENTS, BECAUSE OF RESOURCE LIMITAT
 
 Delegate to a subagent is the same as preserving context on our environment(currently we only have 78k token window - barely workable for real world tasks), not otherwise. The only exception is for small focused tool calls with very limited output(any bash command ending with tail -n10 or head -n10 - that is ok not to delegate, however when only one is needed to reach a specific conclusion).
 
-THIRD RULE: AT EVERY TURN THINK ABOUT: SHOULD I DELEGATE THIS ? IF YES, DELEGATE IT ON FOREGROUND.
+THIRD RULE: AT EVERY TURN THINK ABOUT: SHOULD I DELEGATE THIS ? IF YES, DELEGATE IT ON FOREGROUND (the Agent tool has a parameter `run_in_background` you must always pass false to it).
 
 ---
 
