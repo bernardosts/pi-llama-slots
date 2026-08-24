@@ -24,7 +24,7 @@ By saving the main slot before each subagent dispatch and restoring it after, th
 
 > **Critical: This extension requires `-np 1` (single slot) on llama-server.**
 >
-> The tested hardware (32 GB unified iGPU, 6 GB discrete VRAM) cannot sustain multiple concurrent slots at the context sizes this extension targets (up to 78k tokens, 400-1000 MB per slot). Running `-np > 1` would split memory across slots, reducing available context per slot and degrading performance. This is a **hardware ceiling**, not a design choice — on machines with significantly more RAM/VRAM, multi-slot operation may work but is currently untested.
+> The tested hardware (32 GB unified iGPU) cannot sustain multiple concurrent slots at the context sizes this extension targets (up to 78k tokens, 400-1000 MB per slot). Running `-np > 1` would split memory across slots, reducing available context per slot and degrading performance. This is a **hardware ceiling**, not a design choice — on machines with significantly more RAM/VRAM, multi-slot operation may work but is currently untested.
 >
 > **What this means for users:**
 > - Subagent dispatches are **strictly sequential** — only the main slot exists
