@@ -8,6 +8,8 @@ Measure the **prefill time** (re-encode overhead) between subagent invocations, 
 
 The hypothesis: at non-trivial context sizes, slot restore should produce a measurably shorter prefill than full re-encode.
 
+All subagent runs use the same model as the main session (no model switching), so prefill time differences are caused solely by slot state, not by model transitions.
+
 ---
 
 ## Measurement Methodology
@@ -72,7 +74,14 @@ This establishes the "context loaded" baseline time (`T0`).
 > - A brief history of who introduced it and when
 > - Return a summary of ~200 words with key facts and any interesting related results.
 
-**Run this task at least 4 times**, specifying the model parameter as described in the Notes below.
+**CRITICAL — Sequential dispatch only:**
+
+- Dispatch each subagent **sequentially** — wait for the previous subagent to fully complete before starting the next one.
+- **Never dispatch subagents in parallel.** Do NOT call `Agent` more than once concurrently.
+- Always use `run_in_background: false` — subagents must run foreground.
+- `inherit_context: false` — each subagent gets a fresh context.
+- Run this task 5 times in this sequential manner.
+- Each subagent uses the same model as the main session (no `model` parameter).
 
 ### Step 4 — Subagent Task 2: Different Topic, Different Complexity
 
@@ -85,7 +94,14 @@ This establishes the "context loaded" baseline time (`T0`).
 > - Its computational complexity compared to general-purpose primality tests
 > - Return a summary of ~200 words with the above details.
 
-**Run this task at least 4 times**, specifying the model parameter as described in the Notes below.
+**CRITICAL — Sequential dispatch only:**
+
+- Dispatch each subagent **sequentially** — wait for the previous subagent to fully complete before starting the next one.
+- **Never dispatch subagents in parallel.** Do NOT call `Agent` more than once concurrently.
+- Always use `run_in_background: false` — subagents must run foreground.
+- `inherit_context: false` — each subagent gets a fresh context.
+- Run this task 5 times in this sequential manner.
+- Each subagent uses the same model as the main session (no `model` parameter).
 
 ### Step 5 — Repeat for Both Configurations
 
@@ -102,12 +118,9 @@ Fill in after collecting data from both configurations:
 | Metric | Slots ON | Slots OFF | Delta (ON - OFF) |
 |--------|----------|-----------|--------------------|
 | Context size (files loaded) | ~24KB+ | ~24KB+ | — |
-| Task 1 — Prefill time (avg of 4+) | ___ ms | ___ ms | ___ ms |
-| Task 1 — Prefill time (min) | ___ ms | ___ ms | ___ ms |
-| Task 1 — Prefill time (max) | ___ ms | ___ ms | ___ ms |
-| Task 2 — Prefill time (avg of 4+) | ___ ms | ___ ms | ___ ms |
-| Task 2 — Prefill time (min) | ___ ms | ___ ms | ___ ms |
-| Task 2 — Prefill time (max) | ___ ms | ___ ms | ___ ms |
+| Prefill time (avg of 10) | ___ ms | ___ ms | ___ ms |
+| Prefill time (min) | ___ ms | ___ ms | ___ ms |
+| Prefill time (max) | ___ ms | ___ ms | ___ ms |
 | Total session time | ___ ms | ___ ms | ___ ms |
 
 ---
@@ -115,7 +128,7 @@ Fill in after collecting data from both configurations:
 ## Verification Points (Not a RUN session responsibility — done after artifacts are collected)
 
 1. **Prefill overhead comparison**: Are post-subagent prefill times consistently shorter with slots ON?
-2. **Consistency**: Do both tasks show the same trend (slots ON faster)?
+2. **Consistency**: Is the trend consistent (slots ON faster) across all runs?
 3. **Magnitude**: What's the approximate overhead per dispatch without slots?
 4. **Outlier analysis**: Are there outliers in the slots ON data where restore didn't help (KV cache evicted after restore)?
 5. **Variance**: Is the variance lower with slots ON (more predictable recovery)?
@@ -125,19 +138,26 @@ Fill in after collecting data from both configurations:
 ## Notes
 
 ### Environment detection
-Start by detecting the active configuration:
-- `PI_LLAMA_SLOT_PAGING_DISABLED=1` → Slots OFF run
-- `PI_LLAMA_SLOT_PAGING_DISABLED=0` or unset → Slots ON run
+Detect the active configuration via:
+```bash
+bash: echo "PI_LLAMA_SLOT_PAGING_DISABLED=${PI_LLAMA_SLOT_PAGING_DISABLED:-unset}"
+```
+- Value is `1` → Slots OFF run
+- Value is `0` or unset → Slots ON run
 
 ### Agent tool parameters
-When dispatching subagents, use these parameters explicitly:
 
-- `run_in_background: false` — always foreground (resource limits)
-- `inherit_context: false` — each subagent gets a fresh context
-- `model: "llama-cuda/gemma4-cuda-local"` — always specify the gemma4 model for subagents to ensure consistent, fast generation that doesn't dominate the prefill signal
+When dispatching subagents, use these parameters **every time**:
 
-### Why subagent model matters
-The subagent's own generation time is part of the total dispatch time but **not** part of the prefill measurement. However, using a fast, consistent model (`llama-cuda/gemma4-cuda-local`) reduces variance and ensures the subagent returns quickly so the main session's next turn (the one we measure) is the dominant factor.
+| Parameter | Value | Why |
+|-----------|-------|-----|
+| `run_in_background` | `false` | Foreground only — ensures sequential execution. Never `true`. |
+| `inherit_context` | `false` | Each subagent gets a fresh context. |
+| `max_turns` | unset | Default behavior is fine. |
+
+**NEVER dispatch parallel subagents.** All 10 subagent dispatches (5 Task 1 + 5 Task 2) must happen in sequence, one at a time. Parallel dispatch will corrupt the slot save/restore measurements because the main slot may be saved multiple times simultaneously or not at all.
+
+**NEVER specify a `model` parameter.** All subagents use the same model as the main session. Specifying a different model will cause model-unload/load noise that obscures the prefill signal.
 
 ### Parser script
 After test runs, extract prefill times from the JSONL artifacts using:
@@ -161,7 +181,7 @@ If not given the output artifacts of the test runs, that means the success crite
 
 The test is considered **successful** if:
 - Slots ON shows consistently shorter prefill times than slots OFF (after subagent return)
-- The difference is statistically meaningful across the ≥4 repetitions per task
+- The difference is statistically meaningful across the ≥10 total repetitions
 - The slot-on condition shows lower dispatch overhead
 - The difference is visible both in the JSONL turn gaps and in the extension logs (`wall_restore_slot_ms` vs re-encode times) 
 

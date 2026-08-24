@@ -1,0 +1,99 @@
+
+──────────────────────────────────────────────────────────────────────
+  slots-on-session.jsonl  (detected tool: Agent)
+──────────────────────────────────────────────────────────────────────
+  Task 1: → Agent        = 281299ms (281.3s)
+  Task 2: → Agent        = 226347ms (226.3s)
+  Task 3: → Agent        = 254151ms (254.2s)
+  Task 4: → Agent        = 341453ms (341.5s)
+  Task 5: → Agent        = 237038ms (237.0s)
+  Task 6: → Agent        = 382005ms (382.0s)
+  Task 7: → Agent        = 337066ms (337.1s)
+  Task 8: → Agent        = 364566ms (364.6s)
+  Task 9: → Agent        = 313174ms (313.2s)
+  Task 10: → bash         = 419562ms (419.6s)
+
+  Summary:
+    Count:  10
+    Min:    226347ms (226.3s)
+    Max:    419562ms (419.6s)
+    Avg:    315666ms (315.7s)
+
+──────────────────────────────────────────────────────────────────────
+  slots-off-session.jsonl  (detected tool: Agent)
+──────────────────────────────────────────────────────────────────────
+  Task 1: → Agent        = 324483ms (324.5s)
+  Task 2: → Agent        = 249647ms (249.6s)
+  Task 3: → Agent        = 332252ms (332.3s)
+  Task 4: → Agent        = 359924ms (359.9s)
+  Task 5: → Agent        = 398044ms (398.0s)
+  Task 6: → Agent        = 396720ms (396.7s)
+  Task 7: → Agent        = 392633ms (392.6s)
+  Task 8: → Agent        = 439488ms (439.5s)
+  Task 9: → Agent        = 440160ms (440.2s)
+  Task 10: → bash         = 466988ms (467.0s)
+
+  Summary:
+    Count:  10
+    Min:    249647ms (249.6s)
+    Max:    466988ms (467.0s)
+    Avg:    380034ms (380.0s)
+
+======================================================================
+  COMPARISON TABLE (on=Agent, off=Agent)
+======================================================================
+
+  Task 1 → Agent
+    Slots ON:  281299ms (281.3s)
+    Slots OFF: 324483ms (324.5s)
+    Delta:     -43184ms (-43.2s) (ON faster)
+
+  Task 2 → Agent
+    Slots ON:  226347ms (226.3s)
+    Slots OFF: 249647ms (249.6s)
+    Delta:     -23300ms (-23.3s) (ON faster)
+
+  Task 3 → Agent
+    Slots ON:  254151ms (254.2s)
+    Slots OFF: 332252ms (332.3s)
+    Delta:     -78101ms (-78.1s) (ON faster)
+
+  Task 4 → Agent
+    Slots ON:  341453ms (341.5s)
+    Slots OFF: 359924ms (359.9s)
+    Delta:     -18471ms (-18.5s) (ON faster)
+
+  Task 5 → Agent
+    Slots ON:  237038ms (237.0s)
+    Slots OFF: 398044ms (398.0s)
+    Delta:     -161006ms (-161.0s) (ON faster)
+
+  Task 6 → Agent
+    Slots ON:  382005ms (382.0s)
+    Slots OFF: 396720ms (396.7s)
+    Delta:     -14715ms (-14.7s) (ON faster)
+
+  Task 7 → Agent
+    Slots ON:  337066ms (337.1s)
+    Slots OFF: 392633ms (392.6s)
+    Delta:     -55567ms (-55.6s) (ON faster)
+
+  Task 8 → Agent
+    Slots ON:  364566ms (364.6s)
+    Slots OFF: 439488ms (439.5s)
+    Delta:     -74922ms (-74.9s) (ON faster)
+
+  Task 9 → Agent
+    Slots ON:  313174ms (313.2s)
+    Slots OFF: 440160ms (440.2s)
+    Delta:     -126986ms (-127.0s) (ON faster)
+
+  Task 10 → bash
+    Slots ON:  419562ms (419.6s)
+    Slots OFF: 466988ms (467.0s)
+    Delta:     -47426ms (-47.4s) (ON faster)
+
+──────────────────────────────────────────────────────────────────────
+    Avg Slots ON:  315666ms (315.7s)
+    Avg Slots OFF: 380034ms (380.0s)
+    Avg Delta:     -64368ms (-64.4s) (ON faster)

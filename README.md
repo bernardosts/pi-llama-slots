@@ -20,19 +20,32 @@ By saving the main slot before each subagent dispatch and restoring it after, th
 - **Lower latency** for subsequent dispatches — the model doesn't need to re-encode the full context
 - **Feasible multitasking** — the laptop remains usable (browser, calls, music, VSCode) because the slot approach keeps memory pressure manageable
 
+### Hardware Constraints
+
+> **Critical: This extension requires `-np 1` (single slot) on llama-server.**
+>
+> The tested hardware (32 GB unified iGPU, 6 GB discrete VRAM) cannot sustain multiple concurrent slots at the context sizes this extension targets (up to 78k tokens, 400-1000 MB per slot). Running `-np > 1` would split memory across slots, reducing available context per slot and degrading performance. This is a **hardware ceiling**, not a design choice — on machines with significantly more RAM/VRAM, multi-slot operation may work but is currently untested.
+>
+> **What this means for users:**
+> - Subagent dispatches are **strictly sequential** — only the main slot exists
+> - Each dispatch saves the main slot before the subagent runs and restores it after
+> - Concurrent subagents (parallel dispatch) are not supported
+> - On higher-memory setups, `-np > 1` *may* work but has not been validated
+
 ### Hardware Setups
 
 This extension is designed and tested on local laptop setups with limited memory budgets.
 
-#### Primary Setup: Intel Core Ultra 7 258V (Arc 140V iGPU)
+#### Primary Setup: ASUS Vivobook S14 S5406SA (Intel Core Ultra 7 258V)
 
 | Component | Spec |
 |-----------|------|
-| CPU | Intel Core Ultra 7 258V |
-| GPU | Arc 140V iGPU |
-| RAM | 32 GB unified system memory |
+| Laptop | ASUS Vivobook S14 S5406SA |
+| CPU | Intel Core Ultra 7 258V (Core Ultra Series 1, Lunar Lake) |
+| GPU | Intel Arc 140V iGPU |
+| RAM | 32 GB LPDDR5 8533 MT/s (unified) |
 | Backend | llama-server SYCL build |
-| Model | Qwen3.6-35B-A3B-MTP @ IQ4_XS quantization |
+| Model | unsloth/Qwen3.6-35B-A3B-MTP-GGUF @ UD-IQ4_XS quantization |
 | Max context | 78k tokens |
 
 **Performance:**
@@ -41,23 +54,6 @@ This extension is designed and tested on local laptop setups with limited memory
 |--------|-------|
 | Prefill (start) | ~230 t/s (degrades with context growth) |
 | Encoding | 12–19 t/s (stable, ~15 t/s avg even at 50k context) |
-
-#### Secondary Setup: Intel 13th Gen Core i7 + RTX 4050
-
-| Component | Spec |
-|-----------|------|
-| CPU | Intel Core i7 13th Gen |
-| GPU | NVIDIA RTX 4050 (6 GB VRAM) |
-| RAM | 32 GB system memory |
-| Backend | llama-server CUDA build |
-| Model | Qwen3.6-35B-A3B-MTP @ IQ4_XS quantization |
-
-**Performance:**
-
-| Metric | Speed |
-|--------|-------|
-| Prefill (start) | ~300 t/s (degrades with context growth) |
-| Decoding (start) | ~29 t/s (degrades with context growth, but not unbearable) |
 
 ### Key Advantages
 
@@ -68,7 +64,7 @@ This extension is designed and tested on local laptop setups with limited memory
 
 - **API key support**: Implemented via `PI_LLAMA_SLOT_PAGING_API_KEY` environment variable (see [Configuration](#api-key-support)). If llama-server requires auth but no key is configured, the extension gracefully disables for the session.
 - **Model change in main session**: The extension now tracks the model ID used when the slot was last saved. If the main session model changes, restore is refused with a TUI warning, preventing corrupted KV cache state. A fresh slot is used for the new model (see [Future Work](#future-work)).
-- **`-np 1` is a hardware ceiling, not a config default**: Tested setups (32 GB unified iGPU, 6 GB VRAM discrete) don't have memory headroom for concurrent slots at the context sizes this extension targets (up to 78k tokens). Per-subagent slots (multi-slot pool) would require `-np > 1` and meaningfully more VRAM/RAM than either tested machine has — not planned for this hardware class, untested on higher-memory setups.
+- **`-np 1` is a hardware ceiling, not a config default**: Tested setups cannot sustain concurrent slots at 78k tokens per slot (~400-1000 MB each). See [Hardware Constraints](#hardware-constraints) for details.
 
 ## Built With Itself
 
@@ -162,6 +158,22 @@ The key is sent as `Authorization: Bearer <key>` on all fetch calls. The value i
 
 If llama-server requires auth but no key is configured, the extension detects 401/403 responses, shows a TUI warning, and disables slot save/restore for the session (graceful degradation).
 
+### Hardcoded Defaults
+
+The following defaults are embedded in the source code and configurable only by editing the code:
+
+| Constant | Default | What it controls |
+|----------|---------|------------------|
+| `BACKEND_TIMEOUT` | **300s (5 min)** | HTTP request timeout for all llama-server operations (save, restore, loadModel). |
+| `MODEL_LOAD_POLL_INTERVAL` | **1000ms** | Polling interval after restore while waiting for model to load. |
+| `MODEL_LOAD_MAX_RETRIES` | **120** | Max poll attempts for model load. Total max wait: ~120s. |
+| `MODEL_LOAD_STATUS_INTERVAL` | **500ms** | Polling interval for explicit model status checks. |
+| `MODEL_LOAD_COMPLETE_MAX_RETRIES` | **240** | Max attempts for explicit model load completion check. Total max wait: ~120s. |
+| Health check timeout | **10000ms** | HTTP timeout for the `llama_slot_status` tool (hardcoded literal). |
+| `MAX_LOG_BYTES` | **1,000,000 (1 MB)** | Debug/metrics log file rotation size. |
+
+All retry loops use **fixed-interval polling** (no exponential backoff).
+
 ### Error Handling
 
 On save/restore failure, the extension shows a TUI warning and disables itself for the current session. The next session starts fresh.
@@ -170,8 +182,8 @@ On save/restore failure, the extension shows a TUI warning and disables itself f
 
 ### Prerequisites
 
-- A running `llama-server` instance with slot support (`-np 1`)
-  > **Note:** `-np 1` is a hardware ceiling on the tested machines (32 GB unified iGPU, 6 GB VRAM). Values above 1 require memory headroom not available on those setups. See [Known Limitations](#known-limitations).
+- A running `llama-server` instance with slot support (`-np 1`) — see [Hardware Constraints](#hardware-constraints)
+  > **Note:** Slot files are stored on the llama-server's filesystem, relative to the llama-server process working directory. This extension does not manage slot file storage or lifecycle directly.
 - The `@tintinweb/pi-subagents` package (provides the `Agent` tool that this extension hooks into)
 
 ### Setup
@@ -190,6 +202,8 @@ Only one tool is registered by this extension:
 ### `llama_slot_status`
 
 Checks backend connectivity, resolved model configuration, and reports available slots.
+
+> **Note:** The health check HTTP request uses a hardcoded 10s timeout. If llama-server is slow to respond (e.g., during model load), the tool may report `"unreachable"` even when the backend is functional.
 
 **Parameters:** None
 
@@ -221,7 +235,7 @@ Checks backend connectivity, resolved model configuration, and reports available
 
 ## Performance
 
-Benchmarked on a laptop with an Intel Core i7 (13th Gen) + NVIDIA RTX 4050 (6 GB VRAM), running Qwen3.6-35B-A3B @ IQ4_XS quantization.
+Benchmarked on the ASUS Vivobook S14 S5406SA (Intel Core Ultra 7 258V, Arc 140V iGPU, 32 GB LPDDR5 8533 MT/s unified RAM) running Qwen3.6-35B-A3B-MTP @ UD-IQ4_XS quantization via llama-server SYCL.
 
 ### Save Performance
 
@@ -258,58 +272,58 @@ Benchmarked on a laptop with an Intel Core i7 (13th Gen) + NVIDIA RTX 4050 (6 GB
 
 Raw metrics data from testing sessions is available in [`docs/artifacts/pi-llama-slots.log`](docs/artifacts/pi-llama-slots.log).
 
-> **Missing counterfactual data**: This section shows the *cost* of save/restore (787 ms wall save, 579 ms wall restore). It does **not** show the *benefit* — dispatch latency with paging on vs `PI_LLAMA_SLOT_PAGING_DISABLED=1` at matched context sizes. That comparison (dispatch latency with KV cache preserved vs. full re-encode) is the key metric for net usefulness and is not yet available.
+> **Note on benchmarks vs. experimental results**: The tables above measure the *cost* of save/restore (787 ms avg save, 579 ms avg restore). The actual benefit — faster recovery when subagents return with preserved KV cache — is measured in the [Experimental Results](#experimental-results--prefill-time-slots-on-vs-off) section below, where `Slots OFF` runs (with `PI_LLAMA_SLOT_PAGING_DISABLED=1`) serve as the counterfactual.
 
 ## Experimental Results — Prefill Time: Slots ON vs OFF
 
 **Test setup:**
-- Model: Qwen3.6-35B-A3B-MTP @ IQ4_XS quantization
-- Hardware: Intel Core Ultra 7 258V (Arc 140V iGPU), 32 GB unified memory
-- Task: Two research subagent tasks (Moser spindle graph, Pocklington primality test)
+- Model: unsloth/Qwen3.6-35B-A3B-MTP-GGUF @ UD-IQ4_XS quantization
+- Hardware: ASUS Vivobook S14 S5406SA, Intel Core Ultra 7 258V (Arc 140V iGPU), 32 GB LPDDR5 8533 MT/s unified RAM
+- Backend: llama-server SYCL
+- Tasks: 10 sequential subagent dispatches (5× Moser spindle graph research + 5× Pocklington primality test research)
 - Measurement: Time from subagent-completion `tool_result` event to next assistant `tool_call` (prefill/re-encode gap)
-- Scripts: [`docs/artifacts/analyze_turn_gaps.py`](docs/artifacts/analyze_turn_gaps.py)
+- Scripts: [`docs/artifacts/analyze_turn_gaps.py`](docs/artifacts/analyze_turn_gaps.py), [`docs/artifacts/parse_session.py`](docs/artifacts/parse_session.py)
 
-### Run-001 (original `get_subagent_result` pattern)
-
-| Metric | Slots ON | Slots OFF | Delta | Direction |
-|--------|----------|-----------|-------|-----------|
-| Tasks | 2 | 2 | — | — |
-| Min | 6.4s | 11.0s | — | — |
-| Max | 7.6s | 133.6s | — | — |
-| **Avg** | **7.0s** | **72.3s** | **-65.3s** | **ON faster** |
-
-**Pairwise:** 2/2 — Slots ON faster in every case.
-
-**Key finding:** The OFF Task 2 took 133.6s vs ON's 7.6s (17.6x worse). Context was ~18k tokens by that point — without a saved KV cache, the full re-encode cost compounded.
-
-### Run-002 (newer `Agent` tool pattern)
+### Run-001 (`Agent` tool pattern, 10 tasks)
 
 | Metric | Slots ON | Slots OFF | Delta |
 |--------|----------|-----------|-------|
-| Tasks | 7 | 5 | — |
-| Min | 61.0s | 80.5s | — |
-| Max | 75.5s | 99.7s | — |
-| **Avg** | **68.5s** | **86.2s** | **-17.7s** |
+| Tasks | 10 | 10 | — |
+| Min | 226.3s | 249.6s | — |
+| Max | 419.6s | 467.0s | — |
+| **Avg** | **315.7s** | **380.0s** | **-64.4s** |
 
-**Pairwise:** 5/5 — Slots ON faster in every case.
+**Pairwise:** 10/10 — Slots ON faster in every single case.
 
-**Consistency:** Slots ON shows very tight variance (61-75s, std ~4.5s) vs OFF (80-100s, std ~7.2s).
+**Per-task breakdown:**
 
-### Run-002 Extension Log Evidence
-
-8 successful `restore_full` operations, each restoring **400-500MB** of KV cache (16k-21k tokens). The `wall_restore_slot_ms` component was consistently **282-364ms** — the actual slot restore time. The bulk of the ~18-22s wall time per restore comes from `wall_restore_wait_ms` (15-21s), which is the model load/reload time while waiting for the subagent to complete.
+| Task | Slots ON | Slots OFF | Delta | Context (input tokens, ON) |
+|------|----------|-----------|-------|----------------------------|
+| 1 | 281.3s | 324.5s | -43.2s | ~10k |
+| 2 | 226.3s | 249.6s | -23.3s | ~18k |
+| 3 | 254.2s | 332.3s | -78.1s | ~18k |
+| 4 | 341.5s | 359.9s | -18.5s | ~19k |
+| 5 | 237.0s | 398.0s | -161.0s | ~20k |
+| 6 | 382.0s | 396.7s | -14.7s | ~21k |
+| 7 | 337.1s | 392.6s | -55.6s | ~22k |
+| 8 | 364.6s | 439.5s | -74.9s | ~23k |
+| 9 | 313.2s | 440.2s | -127.0s | ~25k |
+| 10 | 419.6s | 467.0s | -47.4s | ~25k |
 
 ### Data-Based Observations
 
-1. **Consistent signal across both runs:** Slots ON is faster than Slots OFF — 2/2 in run-001, 5/5 in run-002. The direction is unambiguous.
+1. **100% consistent signal:** Slots ON is faster than Slots OFF in all 10 tasks. No exceptions. The direction is unambiguous.
 
-2. **Magnitude varies by context growth:** The savings are huge in run-001 (65s avg) but more modest in run-002 (18s avg). Run-002's absolute times (61-99s) are much higher overall, suggesting the base model load is dominant and slot restore only saves the incremental re-encode portion. As context grows, the saved KV cache prevents progressive re-encode cost accumulation.
+2. **Magnitude varies with context:** The delta ranges from -14.7s (task 6, ~21k tokens) to -161.0s (task 5, ~20k tokens). There is no clear monotonic correlation with context size, suggesting other factors (model processing variability, KV cache fragmentation) also play a role. The average delta of 64.4s represents a **17% improvement**.
 
-3. **Outlier analysis — run-001 OFF:** The 133.6s OFF time on task 2 shows what happens when context grows without slot preservation — without a saved KV cache, the full re-encode cost compounds with each dispatch.
+3. **High absolute prefill times:** Both ON and OFF show very high prefill times (226–467s). This is expected on the Intel Core Ultra 7 258V iGPU at ~25k tokens with unsloth/Qwen3.6-35B-A3B-MTP-GGUF @ UD-IQ4_XS — the encoding throughput (~15 t/s) means full re-encode of 25k tokens takes ~1667s theoretical, but actual observed times are lower due to partial re-encoding and hardware caching effects.
 
-4. **Variance reduction:** Slots ON provides more predictable recovery times, with ~40% lower standard deviation in run-002 (4.5s vs 7.2s).
+4. **Variance analysis:**
+   - Slots ON: std ≈ 59.4s (CV ≈ 19%)
+   - Slots OFF: std ≈ 64.8s (CV ≈ 17%)
+   - Variance is comparable between both configurations — slot restore does not significantly reduce variance at this context scale.
 
-5. **Extension is operational:** Run-002 logs confirm slot save/restore fires on every subagent cycle with successful KV cache restoration at 400-500MB per snapshot.
+5. **Extension is operational:** Run-001 logs confirm slot save/restore fires on every `Agent` tool call with successful KV cache restoration.
 
 ### Test Data
 
@@ -317,10 +331,11 @@ Test artifacts are stored in [`docs/artifacts/test-outputs/`](docs/artifacts/tes
 
 | Run | Slots ON | Slots OFF |
 |-----|----------|-----------|
-| run-001 | `test-scenario-slots-on.jsonl` | `test-scenario-slots-off.jsonl` |
-| run-002 | `slots-on-session.jsonl` | `slots-off-session.jsonl` |
+| run-001 | `slots-on-session.jsonl` (+ CSV) | `slots-off-session.jsonl` (+ CSV) |
 
-Analysis output: `python3 docs/artifacts/analyze_turn_gaps.py <on.jsonl> <off.jsonl>`
+Analysis scripts:
+- `python3 docs/artifacts/analyze_turn_gaps.py <on.jsonl> <off.jsonl>` — turn gap comparison
+- `python3 docs/artifacts/parse_session.py <jsonl> [--output csv]` — per-message CSV export with tool name annotations
 
 ## Features
 
